@@ -3,23 +3,27 @@ import pickle
 
 app = Flask(__name__)
 
-# Load ML model
-model = pickle.load(open("model.pkl", "rb"))
+# Load trained ML model
+with open("model.pkl", "rb") as file:
+    model = pickle.load(file)
 
-# -------- STATE (in-memory) --------
+# ---------------- STATE ----------------
 prediction_count = 0
-# ----------------------------------
+last_prediction = None
+# --------------------------------------
 
 @app.route("/")
 def home():
     return {
-        "message": "🏠 House Price Prediction API is live",
-        "total_predictions": prediction_count
+        "message": "🏠 Stateful House Price Prediction API",
+        "total_predictions": prediction_count,
+        "last_prediction": last_prediction
     }
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    global prediction_count
+    global prediction_count, last_prediction
+
     data = request.get_json()
 
     area = data["area"]
@@ -29,8 +33,15 @@ def predict():
 
     price = model.predict([[area, bedrooms, bathrooms, parking]])[0]
 
-    # Update state
     prediction_count += 1
+
+    last_prediction = {
+        "area": area,
+        "bedrooms": bedrooms,
+        "bathrooms": bathrooms,
+        "parking": parking,
+        "predicted_price": round(price, 2)
+    }
 
     return jsonify({
         "predicted_price": round(price, 2),
