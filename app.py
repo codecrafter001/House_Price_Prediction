@@ -1,81 +1,108 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 import pickle
 
 app = Flask(__name__)
 
-# ---------------- LOAD MODEL SAFELY ----------------
-try:
-    with open("model.pkl", "rb") as file:
-        model = pickle.load(file)
-except Exception as e:
-    model = None
-    print("Model loading failed:", e)
+# -------- Load ML Model --------
+with open("model.pkl", "rb") as file:
+    model = pickle.load(file)
 
-# ---------------- STATE ----------------
+# -------- State --------
 prediction_count = 0
 chat_count = 0
-# -------------------------------------
 
+# -------- Home / Health Check --------
 @app.route("/")
 def home():
-    return jsonify({
+    return {
         "status": "running",
         "predictions": prediction_count,
         "chat_messages": chat_count
-    })
+    }
 
-# ---------------- PREDICTION ----------------
-@app.route("/predict", methods=["POST"])
+# -------- Prediction (GET + POST) --------
+@app.route("/predict", methods=["GET", "POST"])
 def predict():
     global prediction_count
 
-    if not model:
-        return jsonify({"error": "Model not loaded"}), 500
+    # Browser-friendly form
+    if request.method == "GET":
+        return render_template_string("""
+        <h2>🏠 House Price Prediction</h2>
+        <form method="post">
+            Area: <input name="area" type="number" required><br><br>
+            Bedrooms: <input name="bedrooms" type="number" required><br><br>
+            Bathrooms: <input name="bathrooms" type="number" required><br><br>
+            Parking: <input name="parking" type="number" required><br><br>
+            <button type="submit">Predict</button>
+        </form>
+        <hr>
+        <h3>🤖 Need help?</h3>
+        <p>Go to <code>/chat</code> endpoint for chatbot assistance</p>
+        """)
 
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "Invalid or missing JSON"}), 400
-
+    # POST (JSON or form)
     try:
-        area = float(data["area"])
-        bedrooms = int(data["bedrooms"])
-        bathrooms = int(data["bathrooms"])
-        parking = int(data["parking"])
-    except Exception:
-        return jsonify({"error": "Invalid input values"}), 400
+        data = request.get_json(silent=True)
 
-    price = model.predict([[area, bedrooms, bathrooms, parking]])[0]
-    prediction_count += 1
+        if data:
+            area = float(data["area"])
+            bedrooms = int(data["bedrooms"])
+            bathrooms = int(data["bathrooms"])
+            parking = int(data["parking"])
+        else:
+            area = float(request.form["area"])
+            bedrooms = int(request.form["bedrooms"])
+            bathrooms = int(request.form["bathrooms"])
+            parking = int(request.form["parking"])
 
-    return jsonify({
-        "predicted_price": round(price, 2),
-        "prediction_number": prediction_count
-    })
+        price = model.predict([[area, bedrooms, bathrooms, parking]])[0]
+        prediction_count += 1
 
-# ---------------- CHATBOT ----------------
-@app.route("/chat", methods=["POST"])
+        return {
+            "predicted_price": round(price, 2),
+            "prediction_number": prediction_count
+        }
+
+    except Exception as e:
+        return {"error": "Invalid input"}, 400
+
+# -------- Chatbot Assistance --------
+@app.route("/chat", methods=["GET", "POST"])
 def chat():
     global chat_count
 
-    data = request.get_json(silent=True)
-    if not data or "message" not in data:
-        return jsonify({"reply": "Please send a message"}), 400
+    # Browser help page
+    if request.method == "GET":
+        return render_template_string("""
+        <h2>🤖 House Prediction Assistant</h2>
+        <form method="post">
+            Ask a question:<br><br>
+            <input name="message" type="text" required style="width:300px"><br><br>
+            <button type="submit">Ask</button>
+        </form>
+        """)
 
     chat_count += 1
-    user_message = str(data["message"]).lower()
+    data = request.get_json(silent=True)
 
-    if "price" in user_message:
-        reply = "House price is predicted using area, bedrooms, bathrooms, and parking."
-    elif "how" in user_message:
-        reply = "I use a trained Linear Regression model to estimate house prices."
-    elif "input" in user_message:
-        reply = "You need area, bedrooms, bathrooms, and parking to predict a price."
-    elif "hello" in user_message or "hi" in user_message:
-        reply = "Hello 👋 I can help you with house price prediction."
+    if data:
+        message = data.get("message", "").lower()
     else:
-        reply = "Ask me about price prediction or required inputs."
+        message = request.form.get("message", "").lower()
 
-    return jsonify({
+    if "price" in message:
+        reply = "House price depends on area, bedrooms, bathrooms, and parking."
+    elif "how" in message:
+        reply = "I use a trained Machine Learning model (Linear Regression)."
+    elif "input" in message or "feature" in message:
+        reply = "You need area, bedrooms, bathrooms, and parking."
+    elif "hello" in message or "hi" in message:
+        reply = "Hello 👋 I can help you predict house prices."
+    else:
+        reply = "Ask me about house price prediction or required inputs."
+
+    return {
         "reply": reply,
         "chat_number": chat_count
-    })
+    }
